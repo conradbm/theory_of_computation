@@ -1,0 +1,103 @@
+Huffman Compression Theory
+
+
+(1) algorithm to get file size
+
+	// How many times does the letter 'a','b','c','d','e'
+frequency('a') = 40
+frequency('b') = 26
+frequency('c') = 31
+frequency('d') = 11
+frequency('e') = 94
+
+freqSum = frequency('a') + frequency('b') + frequency('c') + frequency('d') + frequency('e')
+
+	// Sum of the frequencies from letters 'a','b','c','d','e'
+	// Mind you, 8 bits per character
+
+
+	// Using fixed length, if each character requires 8 bits, with the given frequency
+freqSum * 8 bits = 200 * 8 = 1600 bits
+
+
+(2) -- if we use the huffman compression technique we reduce the size of file to = ... bits
+
+ --------------------------------------------------------------------------------------------------
+| *** ((Exam example)) given a freq of characters, he might ask us to construct a huffman tree *** |
+ --------------------------------------------------------------------------------------------------
+ -----------------------------
+| Constructing a huffman tree |
+ -----------------------------
+a,40
+b,26
+c,30
+d,10
+e,94
+
+(Q1)
+ -----------
+| Algorithm |
+ -----------
+1) find char w\ least freq -----> d,b,c,a,e
+2)
+3) a) 		36 <-- 		c,30	a,40	e,94
+	       /  \
+	     d,10  b,26
+____________________________________
+b)
+		c,30	36 	a,40	e,94
+		       /  \
+		     d,10  b,26
+_____________________________________
+c)
+			66	a,40	e,94
+		       /  \
+		    c,30   36
+			  /  \
+			d,10  b,26
+_____________________________________
+d) 
+		a,40	66	e,94
+		       /  \
+		    c,30   36
+			  /  \
+			d,10  b,26
+_____________________________________
+e)		e,94	106
+		       /   \
+		    a,40    66
+		       	   /  \
+		        c,30   36
+			      /  \
+			   d,10  b,26
+____________________________________
+f)
+			200
+		      0/   \1
+                   e,96     106 
+   		          0/   \1
+		   	a,40    66
+		       	      0/  \1
+		            c,30   36
+			         0/  \1
+			       d,10  b,26
+
+g) (Q2) Assign bits, Write the huffman code for each letter:
+a: 10
+b: 1111
+c: 110
+d: 1110
+e: 0
+
+If you use the huffman technique, the size of the file will only be:
+= 40*2 + 26*4 + 30*3 + 10*4 + 94*1 = 408 bits 
+   a      b       c     d      e      
+
+The origional sum was 1600 bits
+
+
+(Q3) Compress a word, given we know the code
+(ex) Compress(cab) = 110 10 1111
+
+(Q4) Decompress a word, given we know the code
+(ex) Decompress(110 10 1111) = cab // go bit by bit until you find a word 

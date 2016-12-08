@@ -1,0 +1,18 @@
+xMove = 1
+yMove = 1
+scaleAll = 0.55
+myRotation = 120
+
+
+startshape myShape[]
+CF::Background = [b -1]
+
+shape myShape {
+	drawCircle []
+	loop 3 [r myRotation ] myShape [x xMove y yMove s scaleAll ]
+
+}
+
+shape drawCircle {
+	CIRCLE [ b 1 ]
+}

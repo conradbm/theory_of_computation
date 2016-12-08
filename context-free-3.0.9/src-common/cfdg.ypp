@@ -1,0 +1,1317 @@
+// cfdg.y
+// this file is part of Context Free
+// ---------------------
+// Copyright (C) 2005-2008 Mark Lentczner - markl@glyphic.com
+// Copyright (C) 2005-2013 John Horigan - john@glyphic.com
+// Copyright (C) 2005 Chris Coyne - ccoyne77@gmail.com
+//
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software
+// Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+// 
+// John Horigan can be contacted at john@glyphic.com or at
+// John Horigan, 1209 Villa St., Mountain View, CA 94041-1123, USA
+//
+// Mark Lentczner can be contacted at markl@glyphic.com or at
+// Mark Lentczner, 1209 Villa St., Mountain View, CA 94041-1123, USA
+//
+//
+
+
+%skeleton "lalr1.cc"                          /*  -*- C++ -*- */
+%require "2.5"
+%defines
+%define parser_class_name "CfdgParser"
+%locations
+%expect 3
+//%debug
+%parse-param {class Builder& driver}
+
+%code requires {
+#include "builder.h"
+#include <string>
+namespace AST {
+    class ASTexpression;
+    class ASTmodTerm;
+    class ASTmodification;
+    class ASTpath;
+    class ASTreplacement;
+    class ASTbodyContainer;
+    class ASTloop;
+    class ASTif;
+    class ASTswitch;
+    class ASTpathBody;
+    class ASTpathLoop;
+    class ASTruleSpecifier;
+    class ASTrule;
+    class ASTdefine;
+}
+}
+
+%union
+{
+    int modToken;
+    std::string*  string;
+    const std::string*  cstring;
+    AST::ASTexpression* expression;
+    AST::ASTmodTerm* term;
+    AST::ASTmodification* mod;
+    AST::ASTreplacement* component;
+    AST::ASTloop* loopObj;
+    AST::ASTif* ifObj;
+    AST::ASTswitch* switchObj;
+    AST::ASTruleSpecifier* ruleSpec;
+    AST::ASTrule* ruleObj;
+    AST::ASTrepContainer* bodyObj;
+    AST::ASTdefine* defObj;
+};
+
+%code top {
+#include "astreplacement.h"
+#include "astexpression.h"
+#define USE(VALUE) /*empty*/
+    
+    using namespace AST;
+}
+
+%token STARTSHAPE
+%token CFDG2
+%token CFDG3
+%token SHAPE
+%token RULE
+%token PATH
+%token DEFINE
+%token BECOMES
+%token LOOP
+%token FINALLY
+%token IF
+%token ELSE
+%token SWITCH
+%token CASE
+%token CLONE
+%token LET
+%token <modToken> MODTYPE
+%token <modToken> PARAM
+%token BACKGROUND
+%token BADEOF     /* passed when EOF/EOL is unexpected */
+%token GOODEOF    /* passed at end of include file */
+%token RANGEOP
+%token PLUSMINUSOP
+%token <string> USER_STRING
+%token <string> USER_INTEGER
+%token <string> USER_RATIONAL
+%token <string> USER_FILENAME
+%token <string> USER_QSTRING
+%token <string> USER_ARRAYNAME
+%token INCLUDE
+%token IMPORT
+%token TILE
+%token <term> PARAMETERS
+%token <string> USER_PATHOP
+%token <term> STROKEWIDTH
+%token LE
+%token LT
+%token GE
+%token GT
+%token EQ
+%token NEQ
+%token NOT
+%token AND
+%token OR
+%token XOR
+%token CF_INFINITY
+%right ','
+%left XOR
+%left OR
+%left AND
+%left EQ NEQ
+%left LE LT GE GT
+%left RANGEOP PLUSMINUSOP
+%left '-' '+' '_'
+%left '*' '/'
+%left NOT NEG POS    /* negation--unary minus, unary identity */
+%right '^'    /* exponentiation */
+%type <expression> exp exp2 exp3 expfunc explist arglist parameter_spec letBody
+%type <mod> modification modification_v2 buncha_adjustments
+%type <term> adjustment
+%type <component> element element_simple
+%type <component> pathOp_v2 pathOp_simple_v2 replacement_v2 replacement_simple_v2
+/* %type <definitions> buncha_definitions buncha_parameters parameter_list buncha_global_definitions */
+%type <component> statement statement_v2 initialization initialization_v2 directive_v2 rule path shape_singleton transHeader rule_v2 path_v2
+%type <loopObj> loopHeader element_loop loopHeader_v2
+%type <ifObj> ifHeader ifElseHeader
+%type <switchObj> switchHeader
+%type <ruleObj> rule_header path_header rule_header_v2 path_header_v2 shape_singleton_header
+%type <string> fileString fileNameSpace shapeName
+%type <cstring> directive_string
+%type <modToken> caseHeader
+%type <bodyObj> letHeader
+%type <defObj> definition_header global_definition_header function_definition_header global_definition definition
+
+%destructor { delete $$; } USER_STRING USER_FILENAME USER_QSTRING USER_PATHOP USER_ARRAYNAME fileString fileNameSpace shapeName
+%destructor { } directive_string
+%destructor { delete $$; } definition_header global_definition_header function_definition_header global_definition definition
+%destructor { delete $$; } exp exp2 exp3 expfunc explist arglist parameter_spec letBody
+%destructor { delete $$; } adjustment
+%destructor { delete $$; } modification modification_v2 buncha_adjustments
+%destructor { driver.pop_repContainer(nullptr); delete $$; } loopHeader_v2
+%destructor { driver.pop_repContainer(nullptr); delete $$; } element_loop loopHeader
+%destructor { delete $$; } statement statement_v2 initialization initialization_v2 directive_v2 rule path element element_simple shape_singleton
+%destructor { driver.pop_repContainer(nullptr); delete $$; } shape_singleton_header transHeader
+%destructor { delete $$; } pathOp_v2 pathOp_simple_v2 replacement_v2 replacement_simple_v2
+%destructor { driver.pop_repContainer(nullptr); delete $$; } rule_header path_header
+%destructor { driver.pop_repContainer(nullptr); delete $$; } rule_header_v2 path_header_v2
+%destructor { driver.pop_repContainer(nullptr); delete $$; } ifHeader ifElseHeader
+%destructor { delete $$; } switchHeader
+%destructor { driver.pop_repContainer(nullptr); } caseHeader
+%destructor { driver.pop_repContainer(nullptr); delete $$; } letHeader
+
+%code provides {
+#include "scanner.h"
+#include "math.h"
+#include "builder.h"
+#include <cassert>
+
+#undef yylex
+#define yylex driver.lexer->lex
+}
+
+%%
+
+choose:
+        CFDG2 cfdg2 | CFDG3 cfdg3;
+
+cfdg2:
+        cfdg2 statement_v2 {
+            if ($statement_v2) {
+                driver.push_rep($statement_v2, true);
+            }
+        }
+        |
+        ;
+
+cfdg3:
+        cfdg3 statement {
+            if ($statement) {
+                driver.push_rep($statement, true);
+            }
+        }
+        |
+        ;
+        
+statement:
+          initialization
+        | import { $statement = nullptr; }
+        | eof { $statement = nullptr; }
+        | rule
+        | path
+        | shape { $statement = nullptr; }
+        | shape_singleton
+        | global_definition { $statement = static_cast<ASTreplacement*>($global_definition); }
+        | v2stuff {
+            error(@v2stuff, "Illegal mixture of old and new elements");
+            $statement = nullptr;
+        }
+        ;
+        
+statement_v2:
+        initialization_v2
+        | directive_v2
+        | inclusion { $statement_v2 = nullptr; }
+        | eof { $statement_v2 = nullptr; }
+        | rule_v2
+        | path_v2
+        | v3clues {
+            if (driver.lexer->maybeVersion == token::CFDG2) {
+                error(@v3clues, "Illegal mixture of old and new elements");
+            } else {
+                driver.lexer->maybeVersion = token::CFDG3;
+            }
+            $statement_v2 = nullptr;
+            YYABORT;
+        }
+        ;
+
+v3clues:
+        USER_STRING BECOMES { delete $1; }
+        | MODTYPE BECOMES {}
+        | PARAM BECOMES {}
+        | USER_STRING '(' { delete $1; }
+        | USER_STRING USER_STRING '(' { delete $1; delete $2; }
+        | IMPORT
+        | SHAPE
+        | PATH USER_STRING '(' { delete $2; }
+        | STARTSHAPE USER_STRING '(' { delete $2; }
+        | STARTSHAPE USER_STRING '[' { delete $2; }
+        | STARTSHAPE USER_ARRAYNAME '[' { delete $2; }
+        ;
+
+v2stuff:
+        BACKGROUND modification_v2 { delete $2; }
+        | TILE modification_v2 { delete $2; }
+        | MODTYPE modification_v2 { delete $2; }
+        | INCLUDE fileString { delete $2; }
+        | rule_header_v2 { delete $1; }
+        ;
+
+inclusion:
+        INCLUDE fileString {
+            str_ptr file($fileString); $fileString = nullptr;
+            driver.lexer->maybeVersion = token::CFDG2;
+            driver.SetShape(nullptr);
+            driver.IncludeFile(*file);
+        }
+        ;
+
+import:
+        IMPORT fileNameSpace fileString {
+            str_ptr file($fileString); $fileString = nullptr;
+            str_ptr nm($fileNameSpace); $fileNameSpace = nullptr;
+            driver.SetShape(nullptr);
+            driver.IncludeFile(*file);
+            if (nm)
+                driver.PushNameSpace(std::move(nm), @fileNameSpace);
+        }
+        ;
+
+eof:
+        GOODEOF {
+            if (driver.EndInclude())
+                YYACCEPT;
+        }
+        ;
+
+fileString:
+        USER_FILENAME | USER_QSTRING;
+
+fileNameSpace:
+        '@' USER_STRING { $fileNameSpace = $USER_STRING; }
+        | { $fileNameSpace = nullptr; }
+        ;
+
+initialization:
+        STARTSHAPE USER_STRING[shapeName] parameter_spec modification {
+            str_ptr name($shapeName);   $shapeName = nullptr;
+            exp_ptr p($parameter_spec); $parameter_spec = nullptr;
+            mod_ptr mod($modification); $modification = nullptr;
+            driver.SetShape(nullptr);
+            ASTdefine* cfg = driver.MakeDefinition(CFDG::ParamNames[CFG::StartShape], @initialization, false);
+            if (cfg)
+                cfg->mExpression.reset(driver.MakeRuleSpec(*name, std::move(p), @shapeName, std::move(mod), true));
+            $initialization = cfg;
+        }
+        |
+        STARTSHAPE USER_ARRAYNAME[shapeName] modification {
+            str_ptr name($shapeName);   $shapeName = nullptr;
+            mod_ptr mod($modification); $modification = nullptr;
+            driver.SetShape(nullptr);
+            ASTdefine* cfg = driver.MakeDefinition(CFDG::ParamNames[CFG::StartShape], @initialization, false);
+            if (cfg)
+                cfg->mExpression.reset(driver.MakeRuleSpec(*name, nullptr, @shapeName, std::move(mod), true));
+            $initialization = cfg;
+        }
+        |
+        STARTSHAPE USER_STRING[shapeName] parameter_spec {
+            str_ptr name($shapeName);   $shapeName = nullptr;
+            exp_ptr p($parameter_spec); $parameter_spec = nullptr;
+            driver.SetShape(nullptr);
+            ASTdefine* cfg = driver.MakeDefinition(CFDG::ParamNames[CFG::StartShape], @initialization, false);
+            if (cfg)
+                cfg->mExpression.reset(driver.MakeRuleSpec(*name, std::move(p), @shapeName, nullptr, true));
+            $initialization = cfg;
+        }
+        ;
+
+initialization_v2:
+        STARTSHAPE USER_STRING[shapeName] {
+            str_ptr name($shapeName); $shapeName = nullptr;
+            driver.SetShape(nullptr);
+            ASTdefine* cfg = driver.MakeDefinition(CFDG::ParamNames[CFG::StartShape], @initialization_v2, false);
+            if (cfg)
+                cfg->mExpression.reset(driver.MakeRuleSpec(*name, nullptr, @shapeName, nullptr, true));
+            $initialization_v2 = cfg;
+        }
+        ;
+
+directive_v2:
+        directive_string modification_v2 {
+            exp_ptr mod($modification_v2); $modification_v2 = nullptr;
+            ASTdefine* cfg = driver.MakeDefinition(*$directive_string, @directive_v2, false);
+            if (cfg)
+                cfg->mExpression = std::move(mod);
+            driver.lexer->maybeVersion = token::CFDG2;
+            $directive_v2 = cfg;
+        }
+        ;
+
+directive_string:
+        BACKGROUND { $directive_string = &CFDG::ParamNames[CFG::Background]; }
+        |
+        TILE { $directive_string = &CFDG::ParamNames[CFG::Tile]; }
+        |
+        MODTYPE {
+            switch ($1) {
+            case ASTmodTerm::size:
+                $directive_string = &CFDG::ParamNames[CFG::Size];
+                break;
+            case ASTmodTerm::time:
+                $directive_string = &CFDG::ParamNames[CFG::Time];
+                break;
+            default:
+                $directive_string = &CFDG::ParamNames[CFG::Size];
+                error(@MODTYPE, "Syntax error");
+                break;
+            }
+        }
+        ;
+
+global_definition:
+        global_definition_header exp2 {
+            def_ptr var($global_definition_header);  $global_definition_header = nullptr;
+            exp_ptr exp($exp2);                      $exp2 = nullptr;
+            if (var) {
+                switch (var->mDefineType) {
+                    case ASTdefine::StackDefine:
+                        if (ASTmodification* mod = dynamic_cast<ASTmodification*>(exp.get()))
+                            var->mChildChange.grab(mod);        // emptied ASTmod gets deleted
+                        else
+                            var->mExpression = std::move(exp);
+                        break;
+                    case ASTdefine::LetDefine:
+                        assert(false);
+                        break;
+                    case ASTdefine::FunctionDefine:
+                        driver.pop_repContainer(nullptr);
+                        driver.mParamDecls.mParameters.clear();
+                        driver.mParamDecls.mStackCount = 0;
+                        // fall through
+                    default:
+                        var->mExpression = std::move(exp);
+                        break;
+                }
+                $global_definition = var.release();
+            } else {
+                $global_definition = nullptr;
+            }
+        }
+        ;
+
+function_definition_header:
+        SHAPE USER_STRING[funcName] function_parameter_list BECOMES {
+            str_ptr name($funcName); $funcName = nullptr;
+            $function_definition_header = driver.MakeDefinition(*name, @function_definition_header, true);
+            if ($function_definition_header) {
+                $function_definition_header->mType = RuleType;
+                $function_definition_header->mTuplesize = 1;
+            }
+        }
+        |
+        USER_STRING[funcName] function_parameter_list BECOMES {
+            str_ptr name($funcName); $funcName = nullptr;
+            $function_definition_header = driver.MakeDefinition(*name, @function_definition_header, true);
+            if ($function_definition_header) {
+                $function_definition_header->mType = NumericType;
+                $function_definition_header->mTuplesize = 1;
+            }
+        }
+        |
+        USER_STRING[funcType] USER_STRING[funcName] function_parameter_list BECOMES {
+            str_ptr type($funcType); $funcType = nullptr;
+            str_ptr name($funcName); $funcName = nullptr;
+            $function_definition_header = driver.MakeDefinition(*name, @function_definition_header, true);
+            if ($function_definition_header)
+                $function_definition_header->mType = AST::decodeType(*type, $function_definition_header->mTuplesize, 
+                                                                     $function_definition_header->isNatural, @funcType);
+        }
+        |
+        SHAPE MODTYPE function_parameter_list BECOMES {
+            error(@MODTYPE, "Reserved keyword: adjustment");
+            $function_definition_header = nullptr;
+        }
+        |
+        MODTYPE function_parameter_list BECOMES {
+            error(@MODTYPE, "Reserved keyword: adjustment");
+            $function_definition_header = nullptr;
+        }
+        |
+        USER_STRING[funcType] MODTYPE function_parameter_list BECOMES {
+            str_ptr type($funcType); $funcType = nullptr;
+            error(@MODTYPE, "Reserved keyword: adjustment");
+            $function_definition_header = nullptr;
+        }
+        ;
+
+global_definition_header:
+        function_definition_header {
+            if ($function_definition_header) {
+                assert($function_definition_header->mDefineType == ASTdefine::FunctionDefine);
+                driver.push_repContainer(driver.mParamDecls);
+            } else {
+                // An error occurred
+                driver.mParamDecls.mParameters.clear();
+                driver.mParamDecls.mStackCount = 0;
+            }
+            $global_definition_header = $function_definition_header;
+        }
+        |
+        definition_header {
+            $global_definition_header = $definition_header;
+        }
+        ;
+
+definition_header:
+        USER_STRING[defnName] BECOMES {
+            str_ptr name($defnName); $defnName = nullptr;
+            $definition_header = driver.MakeDefinition(*name, @definition_header, false);
+        }
+        | MODTYPE BECOMES {
+            error(@MODTYPE, "Reserved keyword: adjustment");
+            $definition_header = nullptr;
+        }
+        ;
+
+definition:
+        definition_header exp2 {
+            def_ptr var($definition_header);  $definition_header = nullptr;
+            exp_ptr exp($exp2);               $exp2 = nullptr;
+            if (var) {
+                if (ASTmodification* mod = dynamic_cast<ASTmodification*>(exp.get())) {
+                    mod->modData.mRand64Seed.seed();
+                    var->mChildChange.grab(mod);
+                } else {
+                    var->mExpression = std::move(exp);
+                }
+                $definition = var.release();
+            } else {
+                $definition = nullptr;
+            }
+        }
+        ;
+
+shape:
+        SHAPE USER_STRING[shapeName] parameter_list {
+            str_ptr name($shapeName); $shapeName = nullptr;
+            driver.SetShape(name.get(), @shapeName);
+        }
+        ;
+
+shape_singleton_header:
+        shape '{' {
+            driver.mInPathContainer = false;
+            $shape_singleton_header = new ASTrule(-1, @shape);
+            driver.AddRule($shape_singleton_header);
+            driver.push_repContainer($shape_singleton_header->mRuleBody);
+        }
+
+shape_singleton:
+        shape_singleton_header buncha_elements '}' {
+            $shape_singleton = $shape_singleton_header;
+            driver.pop_repContainer($shape_singleton_header);
+            driver.mInPathContainer = false;
+        }
+        ;
+
+rule_header_v2:
+        RULE USER_STRING[shapeName] {
+            str_ptr name($shapeName); $shapeName = nullptr;
+            driver.SetShape(nullptr);
+            $rule_header_v2 = new ASTrule(driver.StringToShape(*name, @shapeName, false), @rule_header_v2);
+            driver.AddRule($rule_header_v2);
+            driver.push_repContainer($rule_header_v2->mRuleBody);
+        }
+        |
+        RULE USER_STRING[shapeName] USER_RATIONAL[ruleWeight] {
+            str_ptr name($shapeName);    $shapeName = nullptr;
+            str_ptr weight($ruleWeight); $ruleWeight = nullptr;
+            driver.SetShape(nullptr);
+            $rule_header_v2 = new ASTrule(driver.StringToShape(*name, @shapeName, false), 
+                                          CFatof(weight->c_str()),
+                                          weight->find_first_of('%')  != std::string::npos,
+                                          @rule_header_v2);
+            driver.AddRule($rule_header_v2);
+            driver.push_repContainer($rule_header_v2->mRuleBody);
+        }
+        ;
+
+rule_v2:
+        rule_header_v2 '{' buncha_replacements_v2 '}' {
+            driver.lexer->maybeVersion = token::CFDG2;
+            $rule_v2 = $rule_header_v2;
+            driver.pop_repContainer($rule_header_v2);
+        }
+        ;
+
+rule_header:
+        RULE {
+            driver.mInPathContainer = false;
+            $rule_header = new ASTrule(-1, @RULE);
+            driver.AddRule($rule_header);
+            driver.push_repContainer($rule_header->mRuleBody);
+        }
+        |
+        RULE USER_RATIONAL[ruleWeight] {
+            driver.mInPathContainer = false;
+            str_ptr weight($ruleWeight); $ruleWeight = nullptr;
+            $rule_header = new ASTrule(-1, CFatof(weight->c_str()),
+                                       weight->find_first_of('%')  != std::string::npos,
+                                       @rule_header);
+            driver.AddRule($rule_header);
+            driver.push_repContainer($rule_header->mRuleBody);
+        }
+        ;
+
+path_header:
+        PATH USER_STRING[pathName] parameter_list {
+            str_ptr name($pathName); $pathName = nullptr;
+            driver.SetShape(name.get(), @pathName, true);
+            driver.mInPathContainer = true;
+            $path_header = new ASTrule(-1, @path_header);
+            $path_header->isPath = true;
+            driver.AddRule($path_header);
+            driver.push_repContainer($path_header->mRuleBody);
+        }
+        ;
+
+rule:
+        rule_header '{' buncha_elements '}' {
+            $rule = $rule_header;
+            driver.pop_repContainer($rule_header);
+            driver.mInPathContainer = false;
+        }
+        ;
+
+path:
+        path_header '{' buncha_elements '}' {
+            $path = $path_header;
+            driver.pop_repContainer($path_header);
+            driver.mInPathContainer = false;
+            driver.SetShape(nullptr);
+        }
+        ;
+
+path_header_v2:
+        PATH USER_STRING[pathName] {
+            str_ptr name($pathName); $pathName = nullptr;
+            driver.SetShape(nullptr);
+            $path_header_v2 = new ASTrule(driver.StringToShape(*name, @pathName, false), @path_header_v2);
+            $path_header_v2->isPath = true;
+            driver.AddRule($path_header_v2);
+            driver.push_repContainer($path_header_v2->mRuleBody);
+            driver.mInPathContainer = true;
+        }
+        ;
+
+path_v2:
+        path_header_v2 '{' buncha_pathOps_v2 '}' {
+            $path_v2 = $path_header_v2;
+            driver.pop_repContainer($path_header_v2);
+        }
+        ;
+
+parameter:
+        USER_STRING[paramType] USER_STRING[paramName] {
+            str_ptr type($paramType); $paramType = nullptr;
+            str_ptr var($paramName);  $paramName = nullptr;
+            driver.NextParameterDecl(*type, *var, @paramType, @paramName);
+        }
+        |
+        SHAPE USER_STRING[paramName] {
+            static std::string shapeStr("shape");
+            str_ptr var($paramName); $paramName = nullptr;
+            driver.NextParameterDecl(shapeStr, *var, @SHAPE, @paramName);
+        }
+        |
+        USER_STRING MODTYPE {
+            delete $USER_STRING;
+            error(@MODTYPE, "Reserved keyword: adjustment");
+        }
+        |
+        SHAPE MODTYPE {
+            error(@MODTYPE, "Reserved keyword: adjustment");
+        }
+        |
+        USER_STRING[paramName] {
+            static const std::string numtype("number");
+            str_ptr var($paramName); $paramName = nullptr;
+            driver.NextParameterDecl(numtype, *var, @paramName, @paramName);
+        }
+        |
+        MODTYPE {
+            error(@MODTYPE, "Reserved keyword: adjustment");
+        }
+        ;
+
+buncha_parameters:
+        buncha_parameters ',' parameter
+        | parameter
+        ;
+
+parameter_list:
+        '(' buncha_parameters ')'
+        |
+        ;
+
+function_parameter_list:
+        '(' buncha_parameters ')'
+        | '(' ')'
+        ;
+
+parameter_spec:
+        '(' arglist ')' { $parameter_spec = $arglist;}
+        | '(' BECOMES ')' { $parameter_spec = new ASTexpression(@parameter_spec, false, false, AST::ReuseType); }
+        | '(' ')' { $parameter_spec = nullptr; }
+        | { $parameter_spec = nullptr; }
+        ;
+
+buncha_elements: 
+        buncha_elements element {
+            driver.push_rep($element);
+        }
+        |
+        ;
+
+buncha_pathOps_v2: 
+        buncha_pathOps_v2 pathOp_v2 {
+            driver.push_rep($pathOp_v2);
+        }
+        |
+        ;
+
+pathOp_simple_v2:
+        USER_PATHOP '{' buncha_adjustments '}' {
+            str_ptr pop($USER_PATHOP);        $USER_PATHOP = nullptr;
+            mod_ptr mod($buncha_adjustments); $buncha_adjustments = nullptr;
+            driver.lexer->maybeVersion = token::CFDG2;
+            $pathOp_simple_v2 = new ASTpathOp(*pop, std::move(mod), @pathOp_simple_v2);
+        }
+        |
+        shapeName modification_v2 {
+            str_ptr cmd($shapeName); $shapeName = nullptr;
+            mod_ptr mod($modification_v2); $modification_v2 = nullptr;
+            driver.lexer->maybeVersion = token::CFDG2;
+            $pathOp_simple_v2 = new ASTpathCommand(*cmd, std::move(mod), nullptr, @pathOp_simple_v2);
+        }
+        ;
+
+element_simple:
+        USER_PATHOP '(' exp2 ')' {
+            str_ptr pop($USER_PATHOP); $USER_PATHOP = nullptr;
+            exp_ptr mod($exp2); $exp2 = nullptr;
+            $element_simple = new ASTpathOp(*pop, std::move(mod), @element_simple);
+        }
+        |
+        USER_PATHOP '(' ')' {
+            str_ptr pop($USER_PATHOP); $USER_PATHOP = nullptr;
+            exp_ptr mod;
+            $element_simple = new ASTpathOp(*pop, std::move(mod), @element_simple);
+        }
+        |
+        shapeName parameter_spec modification {
+            str_ptr cmd($shapeName);    $shapeName = nullptr;
+            exp_ptr p($parameter_spec); $parameter_spec = nullptr;
+            mod_ptr mod($modification); $modification = nullptr;
+            $element_simple = driver.MakeElement(*cmd, std::move(mod),
+                                                 std::move(p), @element_simple, false);
+        }
+        | 
+        IF '(' exp2 ')' modification  { 
+            exp_ptr args($exp2);        $exp2 = nullptr;
+            mod_ptr mod($modification); $modification = nullptr;
+            str_ptr func(new std::string("if"));
+            args.reset(driver.MakeFunction(std::move(func), std::move(args), @IF, @exp2, false));
+            static const std::string ifstr("if");
+            $element_simple = driver.MakeElement(ifstr, std::move(mod), std::move(args), @element_simple, false);
+        }
+        |
+        letHeader letBody modification {
+            driver.pop_repContainer(nullptr);
+            cont_ptr vars($letHeader);  $letHeader = nullptr;
+            exp_ptr exp($letBody);      $letBody = nullptr;
+            mod_ptr mod($modification); $modification = nullptr;
+            exp.reset(driver.MakeLet(@1, std::move(vars), std::move(exp)));      // must do unconditionally
+            static const std::string letstr("let");
+            $element_simple = driver.MakeElement(letstr, std::move(mod), std::move(exp), @element_simple, false);
+        }
+        |
+        PATH shapeName parameter_spec modification {
+            str_ptr cmd($shapeName);    $shapeName = nullptr;
+            exp_ptr p($parameter_spec); $parameter_spec = nullptr;
+            mod_ptr mod($modification); $modification = nullptr;
+            $element_simple = driver.MakeElement(*cmd, std::move(mod), std::move(p), @element_simple, true);
+        }
+        ;
+
+one_or_more_elements:
+        '{' buncha_elements '}' { }
+        |
+        element {
+            driver.push_rep($element);
+        }
+        ;
+
+one_or_more_pathOp_v2:
+        '{' buncha_pathOps_v2 '}' { }
+        |
+        pathOp_simple_v2 {
+            driver.push_rep($pathOp_simple_v2);
+        }
+        ;
+
+caseBody:
+        caseBody caseBody_element
+        |
+        ;
+
+caseBody_element:
+        caseHeader one_or_more_elements {
+            driver.pop_repContainer(driver.switchStack.top());
+            USE($caseHeader);
+        }
+        ;
+
+element:
+        element_simple { 
+            $element = $element_simple;
+        }
+        |
+        definition {
+            $element = $definition;
+        }
+        |
+        element_loop {
+            $element = $element_loop;
+            driver.pop_repContainer($element_loop);
+            if ($element_loop->mRepType == 0) {
+                delete $element_loop;
+                $element = nullptr;
+            }
+        }
+        |
+        element_loop FINALLY {
+            driver.pop_repContainer($element_loop);
+            driver.push_repContainer($element_loop->mFinallyBody);
+        } one_or_more_elements {
+            driver.pop_repContainer($element_loop);
+            $element = $element_loop;
+            if ($element_loop->mRepType == 0) {
+                delete $element_loop;
+                $element = nullptr;
+            }
+        }
+        |
+        ifHeader one_or_more_elements {
+            $element = $ifHeader;
+            driver.pop_repContainer($ifHeader);
+            if ($ifHeader->mRepType == 0) {
+                delete $ifHeader;
+                $element = nullptr;
+            }
+        }
+        |
+        ifElseHeader one_or_more_elements {
+            $element = $ifElseHeader;
+            driver.pop_repContainer($ifElseHeader);
+            if ($ifElseHeader->mRepType == 0) {
+                delete $ifElseHeader;
+                $element = nullptr;
+            }
+        }
+        |
+        transHeader one_or_more_elements {
+            $element = $transHeader;
+            driver.pop_repContainer($transHeader);
+            if ($transHeader->mRepType == 0) {
+                delete $transHeader;
+                $element = nullptr;
+            }
+        }
+        |
+        switchHeader '{' caseBody '}'
+        {
+            $element = $switchHeader;
+            $switchHeader->unify();
+            driver.switchStack.pop();
+        }
+        |
+        element_v2clue {
+            error(@element_v2clue, "Illegal mixture of old and new elements");
+            $element = nullptr;
+        }
+        ;
+
+element_v2clue:
+        USER_RATIONAL '*' { delete $1; }
+        | USER_STRING '{' { delete $1; }
+        | USER_PATHOP '{' { delete $1; }
+        ;
+
+pathOp_v2:
+        pathOp_simple_v2 { $pathOp_v2 = $pathOp_simple_v2; }
+        |
+        loopHeader_v2 one_or_more_pathOp_v2 {
+            $pathOp_v2 = $loopHeader_v2;
+            driver.pop_repContainer($loopHeader_v2);
+            if ($loopHeader_v2->mRepType == 0) {
+                delete $loopHeader_v2;
+                $pathOp_v2 = nullptr;
+            }
+        }
+        | pathOp_v3clues {
+            if (driver.lexer->maybeVersion == token::CFDG2) {
+                error(@pathOp_v3clues, "Illegal mixture of old and new elements");
+            } else {
+                driver.lexer->maybeVersion = token::CFDG3;
+            }
+            $pathOp_v2 = nullptr;
+            YYABORT;
+        }
+        ;
+
+pathOp_v3clues:
+        USER_PATHOP '(' { delete $1; }
+        | USER_STRING '(' { delete $1; }
+        | PATH
+        | LOOP
+        | USER_STRING BECOMES { delete $1; }
+        | MODTYPE BECOMES
+        | IF
+        | MODTYPE
+        | SWITCH
+        ;
+
+element_loop:
+        loopHeader modification one_or_more_elements {
+            // parse loop mod and loop body with loop index in scope
+            $loopHeader->mLoopModHolder.reset($modification); $modification = nullptr;
+            $element_loop = $loopHeader;
+            // loopmod gets deleted
+        }
+        ;
+
+buncha_replacements_v2: 
+        buncha_replacements_v2 replacement_v2 {
+            driver.push_rep($replacement_v2);
+        }
+        |
+        ;
+
+one_or_more_replacements_v2:
+        '{' buncha_replacements_v2 '}' { }
+        |
+        replacement_simple_v2 {
+            driver.push_rep($replacement_simple_v2);
+        }
+        ;
+
+replacement_simple_v2:
+        shapeName modification_v2 {
+            str_ptr name($shapeName); $shapeName = nullptr;
+            mod_ptr mod($modification_v2); $modification_v2 = nullptr;
+            ruleSpec_ptr r(driver.MakeRuleSpec(*name, nullptr, @shapeName));
+            $replacement_simple_v2 = new ASTreplacement(std::move(*r), std::move(mod), @replacement_simple_v2);
+        }
+        ;
+
+replacement_v2:
+        replacement_simple_v2 { $replacement_v2 = $replacement_simple_v2; }
+        |
+        loopHeader_v2 one_or_more_replacements_v2 {
+            $replacement_v2 = $loopHeader_v2;
+            driver.pop_repContainer($loopHeader_v2);
+            if ($loopHeader_v2->mRepType == 0) {
+                delete $loopHeader_v2;
+                $replacement_v2 = nullptr;
+            }
+        }
+        ;
+
+loopHeader_v2:
+        USER_RATIONAL[loopCount] '*' { ++driver.mLocalStackDepth; } modification_v2 {
+            str_ptr cstr($loopCount); $loopCount = nullptr;
+            exp_ptr count(new ASTreal(*cstr, @loopCount));
+            mod_ptr mod($modification_v2); $modification_v2 = nullptr;
+            static const std::string dummyvar("~~inaccessiblevar~~");
+            --driver.mLocalStackDepth;
+            driver.lexer->maybeVersion = token::CFDG2;
+            $loopHeader_v2 = new ASTloop(driver.StringToShape(dummyvar, @loopCount, false),
+                                         dummyvar, @loopCount, std::move(count), 
+                                         @loopHeader_v2, std::move(mod));
+            driver.push_repContainer($loopHeader_v2->mLoopBody);
+        }
+        ;
+
+loopHeader:
+        LOOP USER_STRING[indexVar] BECOMES exp2 {
+            str_ptr var($indexVar); $indexVar = nullptr;
+            exp_ptr index($exp2);   $exp2 = nullptr;
+            int nameIndex = driver.StringToShape(*var, @indexVar, false);
+            $loopHeader = new ASTloop(nameIndex, *var, @indexVar, std::move(index), @exp2, nullptr);
+            driver.push_repContainer($loopHeader->mLoopBody);
+        }
+        |
+        LOOP MODTYPE BECOMES exp2 {
+            exp_ptr index($exp2); $exp2 = nullptr;
+            static const std::string dummyvar("~~inaccessiblevar~~");
+            $loopHeader = new ASTloop(driver.StringToShape(dummyvar, @LOOP, false),
+                                      dummyvar, @MODTYPE, std::move(index), @exp2, nullptr);
+            driver.push_repContainer($loopHeader->mLoopBody);
+            error(@MODTYPE, "Reserved keyword: adjustment");
+        }
+        |
+        LOOP exp2 {
+            exp_ptr count($exp2); $exp2 = nullptr;
+            static const std::string dummyvar("~~inaccessiblevar~~");
+            $loopHeader = new ASTloop(driver.StringToShape(dummyvar, @LOOP, false),
+                                      dummyvar, @LOOP, std::move(count), @exp2, nullptr);
+            driver.push_repContainer($loopHeader->mLoopBody);
+        }
+        ;
+
+ifHeader:
+        IF '(' exp2 ')' {
+            exp_ptr cond($exp2); $exp2 = nullptr;
+            $ifHeader = new ASTif(std::move(cond), @exp2);
+            driver.push_repContainer($ifHeader->mThenBody);
+        }
+        ;
+
+ifElseHeader:
+        ifHeader one_or_more_elements ELSE {
+            driver.pop_repContainer($ifHeader);
+            driver.push_repContainer($ifHeader->mElseBody);
+            $ifElseHeader = $ifHeader;
+        }
+        ;
+
+transHeader:
+        MODTYPE exp2 {
+            exp_ptr mods($exp2); $exp2 = nullptr;
+            if ($MODTYPE != ASTmodTerm::transform)
+                error(@MODTYPE, "Syntax error");
+            ASTtransform* trans = new ASTtransform(@transHeader, std::move(mods));
+            driver.push_repContainer(trans->mBody);
+            $transHeader = trans;
+        }
+        | CLONE exp2 {
+            exp_ptr mods($exp2); $exp2 = nullptr;
+            ASTtransform* trans = new ASTtransform(@transHeader, std::move(mods));
+            driver.push_repContainer(trans->mBody);
+            trans->mClone = true;
+            $transHeader = trans;
+        }
+        ;
+
+switchHeader:
+        SWITCH '(' exp2 ')' {
+            exp_ptr caseVal($exp2); $exp2 = nullptr;
+            $switchHeader = new ASTswitch(std::move(caseVal), @exp2);
+            driver.switchStack.push($switchHeader);
+        }
+        ;
+
+caseHeader:
+        CASE exp2 ':' {
+            exp_ptr valExp($exp2); $exp2 = nullptr;
+            
+            double val = 0.0;
+            try {
+                if (valExp->evaluate(&val, 1) != 1) {
+                    driver.error(@exp2, "Case expression is not a single, numeric expression");
+                } else {
+                    int intval = static_cast<int>(floor(val));
+                    ASTswitch::switchMap& caseMap = driver.switchStack.top()->mCaseStatements;
+                    
+                    if (caseMap.count(intval)) {
+                        driver.error(@exp2, "Case value already in use");
+                        driver.push_repContainer(*(caseMap[intval]));
+                    } else {
+                        cont_ptr caseBody(new ASTrepContainer());
+                        driver.push_repContainer(*(caseBody.get()));
+                        std::pair<int, cont_ptr> p(intval, std::move(caseBody));
+                        caseMap.insert(std::move(p));
+                    }
+                }
+            }
+            catch (DeferUntilRuntime&) {
+                driver.error(@exp2, "Case expression is not constant");
+            }
+            $caseHeader = 0;
+        }
+        |
+        ELSE ':' {
+            if (!driver.switchStack.top()->mElseBody.mBody.empty()) {
+                driver.error(@$, "There can only be one 'else:' clause");
+            } else {
+                driver.push_repContainer(driver.switchStack.top()->mElseBody);
+            }
+            $caseHeader = 0;
+        }
+        ;
+
+modification_v2:
+        '{' buncha_adjustments '}' {
+            mod_ptr mod($buncha_adjustments); $buncha_adjustments = nullptr;
+            $modification_v2 = driver.MakeModification(std::move(mod), @modification_v2, true);
+        }
+        |
+        '[' buncha_adjustments ']' {
+            mod_ptr mod($buncha_adjustments); $buncha_adjustments = nullptr;
+            $modification_v2 = driver.MakeModification(std::move(mod), @modification_v2, false);
+        }
+        ;
+
+modification:
+        '[' buncha_adjustments ']' {
+            mod_ptr mod($buncha_adjustments); $buncha_adjustments = nullptr;
+            $modification = driver.MakeModification(std::move(mod), @modification, true);
+        }
+        |
+        '[' '[' buncha_adjustments ']' ']' {
+            mod_ptr mod($buncha_adjustments); $buncha_adjustments = nullptr;
+            $modification = driver.MakeModification(std::move(mod), @modification, false);
+        }
+        ;
+        
+buncha_adjustments[ASTmodOut]:
+        buncha_adjustments[ASTmodIn] adjustment {
+            term_ptr mod($adjustment); $adjustment = nullptr;
+            driver.MakeModTerm($ASTmodIn->modExp, std::move(mod));
+            $ASTmodOut = $ASTmodIn;
+        }
+        | {
+            static const yy::location def;
+            $ASTmodOut = new ASTmodification(def);
+        }
+        ;
+
+adjustment:
+        MODTYPE explist {
+            $adjustment = new ASTmodTerm(static_cast<ASTmodTerm::modTypeEnum>($MODTYPE), $explist, @adjustment);
+        }
+        |
+        MODTYPE exp '|' {
+            exp_ptr mod($exp); $exp = nullptr;
+            if ($MODTYPE < ASTmodTerm::hue || $MODTYPE > ASTmodTerm::alpha) {
+                error(@adjustment, "The target operator can only be applied to color adjustments");
+                $adjustment = nullptr;
+            } else {
+                $adjustment = new ASTmodTerm(static_cast<ASTmodTerm::modTypeEnum>($MODTYPE + 4), mod.release(), @adjustment);
+            }
+        }
+        |
+        PARAM USER_STRING {
+            str_ptr p($USER_STRING); $USER_STRING = nullptr;
+            $adjustment = new ASTmodTerm(ASTmodTerm::param, *p, @adjustment);
+        }
+        |
+        PARAM USER_QSTRING {
+            str_ptr p($USER_QSTRING); $USER_QSTRING = nullptr;
+            $adjustment = new ASTmodTerm(ASTmodTerm::param, *p, @adjustment);
+        }
+        ;
+        
+letHeader:
+        LET {
+            $letHeader = new ASTrepContainer();
+            driver.push_repContainer(*$letHeader);
+        }
+        ;
+        
+letBody:
+        '(' letVariables ';' exp2 ')' {
+            $letBody = $exp2;
+        }
+        ;
+        
+letVariables:
+        letVariables ';' letVariable
+        |
+        letVariable
+        ;
+        
+letVariable:
+        definition {
+            driver.push_rep($definition);
+        }
+        ;
+        
+explist[listOut]:
+        explist[listIn] exp {
+            $listOut = ASTexpression::Append($listIn, $exp);
+        }
+        | 
+        exp { 
+            $listOut = $exp;
+        }
+        ;
+
+
+arglist[listOut]:
+        arglist[listIn] ',' exp3 {
+            $listOut = $listIn->append(new ASTparen($exp3));
+        }
+        |
+        exp3 {
+            $listOut = new ASTcons{ new ASTparen($exp3) };
+        }
+        ;
+        
+exp[res]:
+        USER_RATIONAL       { $res = new ASTreal(*$USER_RATIONAL, @res); delete $USER_RATIONAL; $USER_RATIONAL = nullptr; }
+        |
+        CF_INFINITY         { $res = new ASTreal(Renderer::Infinity, @res); }
+        |
+        '(' exp2 ')'        { $res = new ASTparen($exp2); }
+        | 
+        expfunc             { $res = $expfunc; }
+        |
+        USER_STRING[funcName] '(' arglist ')'   {
+            str_ptr func($funcName); $funcName = nullptr;
+            exp_ptr args($arglist);  $arglist = nullptr;
+            $res = driver.MakeFunction(std::move(func), std::move(args), @funcName, @arglist, true);
+        }
+        |
+        '-' exp[unop]       { $res = new ASToperator('N', $unop, nullptr);; }
+        |
+        '+' exp[unop]       { $res = new ASToperator('P', $unop, nullptr);; }
+        |
+        exp[start] RANGEOP exp[end] {
+            exp_ptr pair($start->append($end)); $start = nullptr; $end = nullptr;
+            $res = new ASTfunction("rand", std::move(pair), driver.mSeed, @start, @res);
+        }
+        |
+        exp[center] PLUSMINUSOP exp[range] {
+            exp_ptr pair($center->append($range)); $center = nullptr; $range = nullptr;
+            $res = new ASTfunction("rand+/-", std::move(pair), driver.mSeed, @center, @res);
+        }
+        ;
+
+exp2[res]:
+        exp2[l] ',' exp3[r]     { $res = $l->append($r); }
+        |
+        exp3                    { $res = $exp3; }
+        ;
+
+exp3[res]:
+        USER_RATIONAL        { $res = new ASTreal(*$USER_RATIONAL, @res); delete $USER_RATIONAL; $USER_RATIONAL = nullptr; }
+        |
+        CF_INFINITY          { $res = new ASTreal(Renderer::Infinity, @res); }
+        |
+        expfunc              { $res = $expfunc; }
+        |
+        USER_STRING[funcName] '(' arglist ')'   {
+            str_ptr func($funcName); $funcName = nullptr;
+            exp_ptr args($arglist);  $arglist = nullptr;
+            $res = driver.MakeFunction(std::move(func), std::move(args), @funcName, @arglist, false);
+        }
+        |
+        exp3[start] RANGEOP exp3[end] {
+            exp_ptr pair($start->append($end)); $start = nullptr; $end = nullptr;
+            $res = new ASTfunction("rand", std::move(pair), driver.mSeed, @start, @res);
+        }
+        |
+        exp3[center] PLUSMINUSOP exp3[range] {
+            exp_ptr pair($center->append($range)); $center = nullptr; $range = nullptr;
+            $res = new ASTfunction("rand+/-", std::move(pair), driver.mSeed, @center, @res);
+        }
+        |
+        exp3[l] '+' exp3[r]        { $res = new ASToperator('+', $l, $r); }
+        | 
+        exp3[l] '-' exp3[r]        { $res = new ASToperator('-', $l, $r); }
+        | 
+        exp3[l] '_' exp3[r]        { $res = new ASToperator('_', $l, $r); }
+        | 
+        exp3[l] '*' exp3[r]        { $res = new ASToperator('*', $l, $r); }
+        | 
+        exp3[l] '/' exp3[r]        { $res = new ASToperator('/', $l, $r); }
+        | 
+        '-' exp3[un]  %prec NEG    { $res = new ASToperator('N', $un, nullptr); }
+        | 
+        '+' exp3[un]  %prec POS    { $res = new ASToperator('P', $un, nullptr); }
+        | 
+        NOT exp3[un]               { $res = new ASToperator('!', $un, nullptr); }
+        | 
+        exp3[l] '^' exp3[r]        { $res = new ASToperator('^', $l, $r); }
+        | 
+        exp3[l] LT exp3[r]         { $res = new ASToperator('<', $l, $r); }
+        | 
+        exp3[l] LE exp3[r]         { $res = new ASToperator('L', $l, $r); }
+        | 
+        exp3[l] GT exp3[r]         { $res = new ASToperator('>', $l, $r); }
+        | 
+        exp3[l] GE exp3[r]         { $res = new ASToperator('G', $l, $r); }
+        | 
+        exp3[l] EQ exp3[r]         { $res = new ASToperator('=', $l, $r); }
+        | 
+        exp3[l] NEQ exp3[r]        { $res = new ASToperator('n', $l, $r); }
+        | 
+        exp3[l] AND exp3[r]        { $res = new ASToperator('&', $l, $r); }
+        | 
+        exp3[l] OR exp3[r]         { $res = new ASToperator('|', $l, $r); }
+        | 
+        exp3[l] XOR exp3[r]        { $res = new ASToperator('X', $l, $r); }
+        | 
+        '(' exp2[e] ')'            { $res = new ASTparen($e); }
+        | 
+        modification               { $res = $modification; }
+        ;
+
+expfunc:
+        USER_STRING[funcName] '(' ')'   { 
+            str_ptr func($funcName); $funcName = nullptr;
+            $expfunc = driver.MakeFunction(std::move(func), nullptr, @funcName, @2 + @3, false);
+        }
+        | 
+        USER_ARRAYNAME '[' exp2 ']'   { 
+            str_ptr func($USER_ARRAYNAME); $USER_ARRAYNAME = nullptr;
+            exp_ptr args($exp2);           $exp2 = nullptr;
+            $expfunc = driver.MakeArray(std::move(func), std::move(args), @USER_ARRAYNAME, @exp2);
+        }
+        |
+        IF '(' exp2 ')'   { 
+            str_ptr func(new std::string("if"));
+            exp_ptr args($exp2); $exp2 = nullptr;
+            $expfunc = driver.MakeFunction(std::move(func), std::move(args), @IF, @exp2, false);
+        }
+        |
+        USER_STRING '(' BECOMES ')'   {
+            str_ptr func($USER_STRING); $USER_STRING = nullptr;
+            exp_ptr args(new ASTexpression(@$, false, false, AST::ReuseType));
+            $expfunc = driver.MakeFunction(std::move(func), std::move(args), @USER_STRING, @BECOMES, false);
+        }
+        |
+        letHeader letBody {
+            driver.pop_repContainer(nullptr);
+            cont_ptr vars($letHeader); $letHeader = nullptr;
+            exp_ptr exp($letBody); $letBody = nullptr;
+            $expfunc = driver.MakeLet(@letHeader, std::move(vars), std::move(exp));
+        }
+        |
+        USER_STRING { 
+            str_ptr var($USER_STRING); $USER_STRING = nullptr;
+            $expfunc = driver.MakeVariable(*var, @USER_STRING);
+        }
+        ;
+
+shapeName:
+        USER_STRING { $shapeName = $USER_STRING; }
+        |
+        USER_ARRAYNAME { $shapeName = $USER_ARRAYNAME; }
+        ;
+        
+%%
+
+void yy::CfdgParser::error(const CfdgParser::location_type& l, const std::string& m)
+{
+    driver.error(l, m);
+}
